@@ -135,9 +135,10 @@ void GameWindow::initGameLogic()
     numSnakes  = 0;
     numLadders = 0;
 
-    generateRandomBoard("board.csv",
-                        snakes,  numSnakes,  MAX_SNAKES,
+    generateRandomBoard("C:/Users/yassi_b74iao3/Downloads/ADS v qt/sl/board.csv",
+                        snakes, numSnakes, MAX_SNAKES,
                         ladders, numLadders, MAX_LADDERS);
+
 
     // Rebuild graph & BFS
     delete graph;
