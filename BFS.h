@@ -12,10 +12,8 @@ private:
 public:
     explicit BFS(adj_list *g) : graph(g) {}
 
-    // Old behavior (prints to console)
-    void bfs(int startVertex);
 
-    // New: compute shortest path and return it in pathOut (0-based indices)
+    // compute shortest path and return it in pathOut (0-based indices)
     bool shortestPath(int startVertex, int targetVertex, std::vector<int> &pathOut);
 };
 

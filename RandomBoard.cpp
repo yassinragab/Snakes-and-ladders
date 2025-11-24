@@ -3,11 +3,13 @@
 #include <cstdlib>
 #include <ctime>
 
+using namespace std;
+
 void generateRandomBoard(const char* filename,
                          int snakes[][2], int& numSnakes, int maxSnakes,
                          int ladders[][2], int& numLadders, int maxLadders)
 {
-    std::srand(static_cast<unsigned>(std::time(0)));
+    srand(static_cast<unsigned>(time(0)));
 
     int desiredSnakes  = 8;
     int desiredLadders = 8;
@@ -27,8 +29,8 @@ void generateRandomBoard(const char* filename,
 
     while (numSnakes < desiredSnakes)
     {
-        int head = 5 + (std::rand() % (MAX_SQUARE - 4));
-        int tail = MIN_SQUARE + (std::rand() % (head - MIN_SQUARE));
+        int head = 5 + (rand() % (MAX_SQUARE - 4));
+        int tail = MIN_SQUARE + (rand() % (head - MIN_SQUARE));
 
         if (head == tail)          continue;
         if (used[head] || used[tail]) continue;
@@ -42,8 +44,8 @@ void generateRandomBoard(const char* filename,
 
     while (numLadders < desiredLadders)
     {
-        int bottom = MIN_SQUARE + (std::rand() % (MAX_SQUARE - 10));
-        int top    = bottom + 1 + (std::rand() % (MAX_SQUARE - bottom));
+        int bottom = MIN_SQUARE + (rand() % (MAX_SQUARE - 10));
+        int top    = bottom + 1 + (rand() % (MAX_SQUARE - bottom));
 
         if (top == bottom)          continue;
         if (used[bottom] || used[top]) continue;
@@ -55,7 +57,7 @@ void generateRandomBoard(const char* filename,
         numLadders++;
     }
 
-    std::ofstream file(filename);
+    ofstream file(filename);
     if (!file.is_open())
         return;
 

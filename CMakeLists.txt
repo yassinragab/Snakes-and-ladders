@@ -23,11 +23,13 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
         adj_list.h adj_list.cpp
-        BoardConfig.h BoardConfig.cpp
-        BoardDisplay.h BoardDisplay.cpp
+
+
         Queue.h Queue.cpp
         RandomBoard.h RandomBoard.cpp
         GameWindow.h GameWindow.cpp
+
+
 
     )
 # Define target properties for Android with Qt 6 as:

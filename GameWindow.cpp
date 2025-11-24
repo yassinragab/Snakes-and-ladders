@@ -56,7 +56,7 @@ void GameWindow::setupUi()
 
     setupBoardGrid();
 
-    // --- Info and buttons ---
+    // --- Info ---
     auto *infoLayout  = new QHBoxLayout();
     diceLabel         = new QLabel("Dice: -");
     positionLabel     = new QLabel("Position: 1");
@@ -65,6 +65,7 @@ void GameWindow::setupUi()
     infoLayout->addStretch();
     mainLayout->addLayout(infoLayout);
 
+    // --- Buttons ---
     auto *buttonLayout = new QHBoxLayout();
     rollButton         = new QPushButton("Roll Dice");
     resetButton        = new QPushButton("Reset Game");
@@ -83,14 +84,11 @@ void GameWindow::setupUi()
     logText->setMinimumHeight(130);
     mainLayout->addWidget(logText);
 
-    connect(rollButton,        &QPushButton::clicked,
-            this,              &GameWindow::onRollDiceClicked);
-    connect(resetButton,       &QPushButton::clicked,
-            this,              &GameWindow::onResetClicked);
-    connect(shortestPathButton,&QPushButton::clicked,
-            this,              &GameWindow::onShowShortestPathClicked);
+    connect(rollButton, &QPushButton::clicked, this, &GameWindow::onRollDiceClicked);
+    connect(resetButton, &QPushButton::clicked, this, &GameWindow::onResetClicked);
+    connect(shortestPathButton,&QPushButton::clicked,this, &GameWindow::onShowShortestPathClicked);
 
-    setWindowTitle("Snakes and Ladders - Qt GUI");
+    setWindowTitle("Snakes and Ladders ");
     resize(800, 700);
 }
 
@@ -105,7 +103,6 @@ void GameWindow::setupBoardGrid()
     int visualRow = 0; // row in the layout (0 = top)
     for (int row = 9; row >= 0; --row, ++visualRow)
     {
-        // Same logic as your console version:
         // even row (0,2,4..) -> left to right
         // odd  row (1,3,5..) -> right to left
         bool leftToRight = (row % 2 == 0);
@@ -327,7 +324,7 @@ void GameWindow::onRollDiceClicked()
     if (playerPos == 100)
     {
         if (logText)
-            logText->append("🎉 Congratulations! You reached 100 and won the game!");
+            logText->append(" Congratulations! You reached 100 and won the game!");
         QMessageBox::information(this, "You win!", "Congratulations! You reached square 100.");
     }
 }

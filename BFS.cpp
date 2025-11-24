@@ -66,25 +66,4 @@ bool BFS::shortestPath(int startVertex, int targetVertex, std::vector<int> &path
     return found;
 }
 
-void BFS::bfs(int startVertex)
-{
-    std::vector<int> path;
-    bool ok = shortestPath(startVertex, 99, path);
 
-    if (!ok)
-    {
-        cout << "No path found!\n";
-        return;
-    }
-
-    cout << "Reached 100!\n";
-
-    cout << "Shortest path: ";
-    for (int i = static_cast<int>(path.size()) - 1; i >= 0; --i)
-    {
-        cout << (path[i] + 1);
-        if (i != 0)
-            cout << " -> ";
-    }
-    cout << endl;
-}
