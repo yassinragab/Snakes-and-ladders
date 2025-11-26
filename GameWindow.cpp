@@ -9,10 +9,18 @@
 #include <QTextEdit>
 #include <QMessageBox>
 #include <QStringList>
+#include <QComboBox>
+#include <QTimer>
+#include <QDialog>
+#include <fstream>
 
 #include <cstdlib>
 #include <ctime>
 #include <vector>
+
+using namespace std;
+
+// ====================== Constructor / Destructor ======================
 
 GameWindow::GameWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -20,142 +28,285 @@ GameWindow::GameWindow(QWidget *parent)
     numLadders(0),
     graph(nullptr),
     solver(nullptr),
-    playerPos(1),
+    numPlayers(1),          // base config: 1 player
+    desiredSnakes(8),       // base config: 8 snakes
+    desiredLadders(8),      // base config: 8 ladders
+    currentPlayer(0),
+    gameFinished(false),
+    isReplaying(false),
+    replayIndex(0),
+    replayTimer(nullptr),
+    isAnimating(false),
+    animPlayer(0),
+    animCurrent(1),
+    animEnd(1),
+    animTimer(nullptr),
     centralWidget(nullptr),
     boardLayout(nullptr),
+    createGameButton(nullptr),
     rollButton(nullptr),
     resetButton(nullptr),
     shortestPathButton(nullptr),
+    replayButton(nullptr),
+    editBoardButton(nullptr),
     diceLabel(nullptr),
     positionLabel(nullptr),
-    logText(nullptr)
+    turnLabel(nullptr),
+    logText(nullptr),
+    statsText(nullptr),
+    playerCountCombo(nullptr),
+    snakeCountCombo(nullptr),
+    ladderCountCombo(nullptr)
 {
-    std::srand(static_cast<unsigned>(std::time(nullptr)));
+    srand(static_cast<unsigned>(time(nullptr)));
     setupUi();
-    initGameLogic();
+    initGameLogic();     // uses base config (1,8,8)
     updateBoard();
 }
 
 GameWindow::~GameWindow()
 {
+    delete replayTimer;
+    delete animTimer;
     delete solver;
     delete graph;
 }
+
+// ====================== UI Setup ======================
 
 void GameWindow::setupUi()
 {
     centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
 
-    auto *mainLayout = new QVBoxLayout(centralWidget);
+    auto *rootLayout = new QHBoxLayout(centralWidget);
 
-    // --- Board grid ---
+    // ===== LEFT: BOARD =====
+    QWidget *boardContainer = new QWidget(centralWidget);
+    auto *boardContainerLayout = new QVBoxLayout(boardContainer);
+    boardContainerLayout->setContentsMargins(0, 0, 0, 0);
+    boardContainerLayout->setSpacing(0);
+
     boardLayout = new QGridLayout();
-    boardLayout->setSpacing(2);
-    mainLayout->addLayout(boardLayout);
+    boardLayout->setSpacing(1);
+    boardContainerLayout->addLayout(boardLayout);
+    boardContainerLayout->addStretch();
 
     setupBoardGrid();
 
-    // --- Info ---
-    auto *infoLayout  = new QHBoxLayout();
-    diceLabel         = new QLabel("Dice: -");
-    positionLabel     = new QLabel("Position: 1");
+    // ===== RIGHT: SETTINGS + INFO + BUTTONS + LOG + STATS =====
+    auto *sideLayout = new QVBoxLayout();
+
+    // --- SETTINGS ROW (drop-downs) ---
+    auto *settingsLayout = new QHBoxLayout();
+
+    auto *playersLabel = new QLabel("Players:");
+    playerCountCombo   = new QComboBox();
+    for (int i = 1; i <= MAX_PLAYERS; ++i)
+        playerCountCombo->addItem(QString::number(i));
+
+    auto *snakesLabel = new QLabel("Snakes:");
+    snakeCountCombo   = new QComboBox();
+    for (int i = 0; i <= MAX_SNAKES; ++i)
+        snakeCountCombo->addItem(QString::number(i));
+
+    auto *laddersLabel = new QLabel("Ladders:");
+    ladderCountCombo   = new QComboBox();
+    for (int i = 0; i <= MAX_LADDERS; ++i)
+        ladderCountCombo->addItem(QString::number(i));
+
+    // Set dropdowns to base config values
+    playerCountCombo->setCurrentIndex(numPlayers - 1); // 1-based to index
+    snakeCountCombo->setCurrentIndex(desiredSnakes);   // 0..20
+    ladderCountCombo->setCurrentIndex(desiredLadders); // 0..20
+
+    settingsLayout->addWidget(playersLabel);
+    settingsLayout->addWidget(playerCountCombo);
+    settingsLayout->addWidget(snakesLabel);
+    settingsLayout->addWidget(snakeCountCombo);
+    settingsLayout->addWidget(laddersLabel);
+    settingsLayout->addWidget(ladderCountCombo);
+    settingsLayout->addStretch();
+
+    // Top: dice + positions + turn
+    auto *infoLayout = new QHBoxLayout();
+    diceLabel     = new QLabel("Dice: -");
+    positionLabel = new QLabel("Positions: all at 1");
+    turnLabel     = new QLabel("Current: Player 1");
+
     infoLayout->addWidget(diceLabel);
     infoLayout->addWidget(positionLabel);
+    infoLayout->addWidget(turnLabel);
     infoLayout->addStretch();
-    mainLayout->addLayout(infoLayout);
 
-    // --- Buttons ---
+    // Middle: buttons
     auto *buttonLayout = new QHBoxLayout();
+    createGameButton   = new QPushButton("Create Game");
     rollButton         = new QPushButton("Roll Dice");
     resetButton        = new QPushButton("Reset Game");
     shortestPathButton = new QPushButton("Show Shortest Path");
+    replayButton       = new QPushButton("Replay Last Game");
+    editBoardButton    = new QPushButton("Edit Board");
 
+    buttonLayout->addWidget(createGameButton);
     buttonLayout->addWidget(rollButton);
     buttonLayout->addWidget(resetButton);
     buttonLayout->addWidget(shortestPathButton);
-    buttonLayout->addStretch();
+    buttonLayout->addWidget(replayButton);
+    buttonLayout->addWidget(editBoardButton);
 
-    mainLayout->addLayout(buttonLayout);
-
-    // --- Log ---
+    // Log box
     logText = new QTextEdit();
     logText->setReadOnly(true);
-    logText->setMinimumHeight(130);
-    mainLayout->addWidget(logText);
+    logText->setMinimumWidth(260);
 
-    connect(rollButton, &QPushButton::clicked, this, &GameWindow::onRollDiceClicked);
-    connect(resetButton, &QPushButton::clicked, this, &GameWindow::onResetClicked);
-    connect(shortestPathButton,&QPushButton::clicked,this, &GameWindow::onShowShortestPathClicked);
+    // Stats box (feature 6)
+    statsText = new QTextEdit();
+    statsText->setReadOnly(true);
+    statsText->setMinimumWidth(260);
 
-    setWindowTitle("Snakes and Ladders ");
-    resize(800, 700);
+    sideLayout->addLayout(settingsLayout);
+    sideLayout->addLayout(infoLayout);
+    sideLayout->addLayout(buttonLayout);
+    sideLayout->addWidget(new QLabel("Game Log:"));
+    sideLayout->addWidget(logText, 1);
+    sideLayout->addWidget(new QLabel("Statistics:"));
+    sideLayout->addWidget(statsText, 1);
+
+    // Put left and right in the root layout
+    rootLayout->addWidget(boardContainer);
+    rootLayout->addLayout(sideLayout);
+
+    rootLayout->setStretch(0, 3);  // board
+    rootLayout->setStretch(1, 2);  // side panel
+
+    // Connections
+    connect(createGameButton,   &QPushButton::clicked,
+            this,               &GameWindow::onCreateGameClicked);
+    connect(rollButton,         &QPushButton::clicked,
+            this,               &GameWindow::onRollDiceClicked);
+    connect(resetButton,        &QPushButton::clicked,
+            this,               &GameWindow::onResetClicked);
+    connect(shortestPathButton, &QPushButton::clicked,
+            this,               &GameWindow::onShowShortestPathClicked);
+    connect(replayButton,       &QPushButton::clicked,
+            this,               &GameWindow::onReplayClicked);
+    connect(editBoardButton,    &QPushButton::clicked,
+            this,               &GameWindow::onEditBoardClicked);
+
+    setWindowTitle("Snakes and Ladders - Qt GUI (Multi-Player Enhanced)");
+    resize(1200, 700);
 }
 
 void GameWindow::setupBoardGrid()
 {
     cellLabels.clear();
-    cellLabels.resize(100);   // index by cell number - 1
+    cellLabels.resize(100);   // index by (cell number - 1)
 
     const int ROWS = 10;
     const int COLS = 10;
 
-    int visualRow = 0; // row in the layout (0 = top)
+    int visualRow = 0; // layout row: 0 = top
     for (int row = 9; row >= 0; --row, ++visualRow)
     {
-        // even row (0,2,4..) -> left to right
-        // odd  row (1,3,5..) -> right to left
         bool leftToRight = (row % 2 == 0);
 
         for (int col = 0; col < COLS; ++col)
         {
             int realCol = leftToRight ? col : (COLS - 1 - col);
-            int cellNum = row * COLS + realCol + 1; // 1..100
+            int cellNum = row * COLS + realCol + 1;  // 1..100
 
             QLabel *label = new QLabel(QString::number(cellNum));
             label->setAlignment(Qt::AlignCenter);
             label->setFrameShape(QFrame::Box);
-            label->setMinimumSize(40, 40);
 
-            // Place visually: visualRow is from top (0) to bottom (9)
+            label->setFixedSize(50, 50);
+            label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
             boardLayout->addWidget(label, visualRow, col);
-
-            // Store by logical cell index (1..100 -> 0..99)
             cellLabels[cellNum - 1] = label;
         }
     }
 }
 
+// ====================== Game Initialization ======================
+
 void GameWindow::initGameLogic()
 {
-    // Generate random board
+    // Clamp config
+    if (numPlayers < 1) numPlayers = 1;
+    if (numPlayers > MAX_PLAYERS) numPlayers = MAX_PLAYERS;
+    if (desiredSnakes < 0) desiredSnakes = 0;
+    if (desiredSnakes > MAX_SNAKES) desiredSnakes = MAX_SNAKES;
+    if (desiredLadders < 0) desiredLadders = 0;
+    if (desiredLadders > MAX_LADDERS) desiredLadders = MAX_LADDERS;
+
+    // Sync dropdowns with current config
+    if (playerCountCombo)
+        playerCountCombo->setCurrentIndex(numPlayers - 1);
+    if (snakeCountCombo)
+        snakeCountCombo->setCurrentIndex(desiredSnakes);
+    if (ladderCountCombo)
+        ladderCountCombo->setCurrentIndex(desiredLadders);
+
+    currentPlayer = 0;
+    gameFinished  = false;
+    isReplaying   = false;
+    replayIndex   = 0;
+    history.clear();
+
+    // Initialize players & stats
+    for (int i = 0; i < MAX_PLAYERS; ++i)
+    {
+        playerPos[i]      = 1;
+        playerFinished[i] = (i >= numPlayers);
+        diceRolls[i]      = 0;
+        snakesHit[i]      = 0;
+        laddersClimbed[i] = 0;
+        turnsTaken[i]     = 0;
+    }
+
+    // Generate board
     numSnakes  = 0;
     numLadders = 0;
 
     generateRandomBoard("C:/Users/yassi_b74iao3/Downloads/ADS v qt/sl/board.csv",
-                        snakes, numSnakes, MAX_SNAKES,
-                        ladders, numLadders, MAX_LADDERS);
+                        snakes,  numSnakes,  MAX_SNAKES,
+                        ladders, numLadders, MAX_LADDERS,
+                        desiredSnakes, desiredLadders);
 
-
-    // Rebuild graph & BFS
     delete graph;
     delete solver;
-
     graph  = new adj_list(numSnakes, snakes, numLadders, ladders);
     solver = new BFS(graph);
 
-    playerPos = 1;
     if (positionLabel)
-        positionLabel->setText("Position: 1");
-    if (diceLabel)
-        diceLabel->setText("Dice: -");
+    {
+        QString posStr = "Positions: ";
+        for (int p = 0; p < numPlayers; ++p)
+            posStr += QString("P%1=%2 ").arg(p + 1).arg(playerPos[p]);
+        positionLabel->setText(posStr.trimmed());
+    }
+
+    if (diceLabel) diceLabel->setText("Dice: -");
+    if (turnLabel) turnLabel->setText("Current: Player 1");
+
     if (logText)
     {
         logText->clear();
-        logText->append("New random board generated.");
+        logText->append(
+            QString("New random board generated for %1 player(s), %2 snake(s), %3 ladder(s).")
+                .arg(numPlayers)
+                .arg(numSnakes)
+                .arg(numLadders)
+            );
         logText->append("Reach square 100 to win!");
     }
+
+    updateStatsPanel();
 }
+
+// ====================== Utility Helpers ======================
 
 int GameWindow::applySnakesAndLadders(int pos, bool &hitSnake, bool &hitLadder)
 {
@@ -183,10 +334,63 @@ int GameWindow::applySnakesAndLadders(int pos, bool &hitSnake, bool &hitLadder)
     return pos;
 }
 
+QString GameWindow::playerColor(int playerIndex) const
+{
+    switch (playerIndex)
+    {
+    case 0: return "#1e90ff"; // blue
+    case 1: return "#ff5555"; // red
+    case 2: return "#55dd55"; // green
+    case 3: return "#ffaa00"; // orange
+    default: return "black";
+    }
+}
+
+void GameWindow::updateStatsPanel()
+{
+    if (!statsText) return;
+
+    QString s;
+    for (int p = 0; p < numPlayers; ++p)
+    {
+        s += QString("Player %1:\n").arg(p + 1);
+        // Removed: Rolls line (you asked to hide number of dice rolls)
+        s += QString("  Turns: %1\n").arg(turnsTaken[p]);
+        s += QString("  Snakes hit: %1\n").arg(snakesHit[p]);
+        s += QString("  Ladders climbed: %1\n\n").arg(laddersClimbed[p]);
+    }
+    statsText->setText(s);
+}
+
+void GameWindow::animateMove(int player, int start, int end)
+{
+    if (!animTimer)
+    {
+        animTimer = new QTimer(this);
+        connect(animTimer, &QTimer::timeout,
+                this,      &GameWindow::onAnimateStep);
+    }
+
+    isAnimating = true;
+    animPlayer  = player;
+    animCurrent = start;
+    animEnd     = end;
+
+    animTimer->start(150); // ms per step
+}
+
+// ====================== Board Redraw ======================
+
 void GameWindow::updateBoard()
 {
     if (cellLabels.size() != 100)
         return;
+
+    // Classic theme
+    QString normalColor   = "white";
+    QString snakeColor    = "#ff6666";
+    QString ladderColor   = "#66ff66";
+    QString playerColorBg = "#ffff66";
 
     for (int i = 0; i < 100; ++i)
     {
@@ -197,7 +401,6 @@ void GameWindow::updateBoard()
         int snakeTo  = -1;
         int ladderTo = -1;
 
-        // Check snakes
         for (int s = 0; s < numSnakes; ++s)
         {
             if (snakes[s][0] == cellNum)
@@ -206,8 +409,6 @@ void GameWindow::updateBoard()
                 break;
             }
         }
-
-        // Check ladders
         for (int l = 0; l < numLadders; ++l)
         {
             if (ladders[l][0] == cellNum)
@@ -217,12 +418,22 @@ void GameWindow::updateBoard()
             }
         }
 
-        bool isPlayerHere = (cellNum == playerPos);
+        QString playersHere;
+        for (int p = 0; p < numPlayers; ++p)
+        {
+            if (!playerFinished[p] && playerPos[p] == cellNum)
+            {
+                playersHere += QString("P%1 ").arg(p + 1);
+            }
+        }
+        bool anyPlayerHere = !playersHere.isEmpty();
 
-        // ----- Text inside the box -----
         QString text;
-        if (isPlayerHere)
-            text += "P\n";  // show player at top
+        if (anyPlayerHere)
+        {
+            text += playersHere.trimmed();
+            text += "\n";
+        }
 
         text += QString::number(cellNum);
 
@@ -233,131 +444,479 @@ void GameWindow::updateBoard()
 
         label->setText(text);
 
-        // ----- Colors (always black font) -----
         QString style;
-        if (isPlayerHere)
+        if (anyPlayerHere)
         {
-            // Player cell: bright yellow
-            style = "background-color: #ffff66; color: black; border: 1px solid black;";
+            style = QString("background-color: %1; color: black; border: 1px solid black;")
+            .arg(playerColorBg);
         }
         else if (snakeTo != -1)
         {
-            // Brighter red for snakes
-            style = "background-color: #ff6666; color: black; border: 1px solid black;";
+            style = QString("background-color: %1; color: black; border: 1px solid black;")
+            .arg(snakeColor);
         }
         else if (ladderTo != -1)
         {
-            // Brighter green for ladders
-            style = "background-color: #66ff66; color: black; border: 1px solid black;";
+            style = QString("background-color: %1; color: black; border: 1px solid black;")
+            .arg(ladderColor);
         }
         else
         {
-            // Normal cell
-            style = "background-color: white; color: black; border: 1px solid black;";
+            style = QString("background-color: %1; color: black; border: 1px solid black;")
+            .arg(normalColor);
         }
 
         label->setStyleSheet(style);
     }
 
     if (positionLabel)
-        positionLabel->setText(QString("Position: %1").arg(playerPos));
+    {
+        QString posStr = "Positions: ";
+        for (int p = 0; p < numPlayers; ++p)
+            posStr += QString("P%1=%2 ").arg(p + 1).arg(playerPos[p]);
+        positionLabel->setText(posStr.trimmed());
+    }
+
+    if (turnLabel)
+    {
+        QString color = playerColor(currentPlayer);
+        turnLabel->setText(QString("Current: Player %1").arg(currentPlayer + 1));
+        turnLabel->setStyleSheet(QString("font-weight: bold; color: %1;").arg(color));
+    }
+
+    updateStatsPanel();
 }
 
+// ====================== Slots: Config ======================
 
-void GameWindow::onRollDiceClicked()
+void GameWindow::onCreateGameClicked()
 {
-    if (playerPos >= 100)
+    if (isReplaying || isAnimating)
     {
-        QMessageBox::information(this, "Game finished",
-                                 "You already reached 100. Press Reset to start a new game.");
+        QMessageBox::information(this, "Busy",
+                                 "Please wait until replay/animation finishes.");
         return;
     }
 
-    int dice = (std::rand() % 6) + 1;
-    diceLabel->setText(QString("Dice: %1").arg(dice));
+    if (playerCountCombo)
+        numPlayers = playerCountCombo->currentText().toInt();
+    if (snakeCountCombo)
+        desiredSnakes = snakeCountCombo->currentText().toInt();
+    if (ladderCountCombo)
+        desiredLadders = ladderCountCombo->currentText().toInt();
 
-    int newPos = playerPos + dice;
-
-    // --- Case 1: roll would exceed 100 ---
-    if (newPos > 100)
-    {
-        if (logText)
-        {
-            QString msg = QString("Rolled %1, but move exceeds 100. Stay at %2.")
-            .arg(dice).arg(playerPos);
-            logText->append(msg);
-            logText->append("");   // empty line between this roll and the next one
-        }
-
-        updateBoard();
-        return;
-    }
-
-    // --- Case 2: normal move ---
-    bool hitSnake = false;
-    bool hitLadder = false;
-
-    int finalPos = applySnakesAndLadders(newPos, hitSnake, hitLadder);
-
-    // Build ONE line that may include snake/ladder info
-    QString msg = QString("Rolled %1, moving from %2 to %3.")
-                      .arg(dice).arg(playerPos).arg(newPos);
-
-    if (hitSnake)
-    {
-        msg += QString(" Oh no! Snake! Slide down to %1.").arg(finalPos);
-    }
-    else if (hitLadder)
-    {
-        msg += QString(" Nice! Ladder! Climb up to %1.").arg(finalPos);
-    }
-
-    playerPos = finalPos;
+    initGameLogic();
     updateBoard();
 
     if (logText)
     {
-        logText->append(msg);  // whole story in one line
-        logText->append("");   // blank line after each roll
-    }
-
-    if (playerPos == 100)
-    {
-        if (logText)
-            logText->append(" Congratulations! You reached 100 and won the game!");
-        QMessageBox::information(this, "You win!", "Congratulations! You reached square 100.");
+        logText->append("");
+        logText->append("Game created with selected configuration.");
     }
 }
 
 void GameWindow::onResetClicked()
 {
-    initGameLogic();
-    updateBoard();
-}
-
-void GameWindow::onShowShortestPathClicked()
-{
-    if (!solver)
-        return;
-
-    std::vector<int> path;
-    bool ok = solver->shortestPath(0, 99, path);
-
-    if (!ok)
+    if (isReplaying || isAnimating)
     {
-        QMessageBox::warning(this, "Shortest Path", "No path found from 1 to 100.");
+        QMessageBox::information(this, "Busy",
+                                 "Please wait until replay/animation finishes.");
         return;
     }
 
-    // path is target..start, so reverse and convert to 1-based
-    QStringList list;
-    for (int i = static_cast<int>(path.size()) - 1; i >= 0; --i)
-        list << QString::number(path[i] + 1);
+    numPlayers     = 1;
+    desiredSnakes  = 8;
+    desiredLadders = 8;
 
-    QString msg = "Shortest path (from 1 to 100):\n" + list.join(" -> ");
+    initGameLogic();
+    updateBoard();
+
+    if (logText)
+    {
+        logText->append("");
+        logText->append("Game reset to base configuration (1 player, 8 snakes, 8 ladders).");
+    }
+}
+
+// ====================== Slots: Rolling & Movement ======================
+
+void GameWindow::onRollDiceClicked()
+{
+    if (gameFinished)
+    {
+        QMessageBox::information(this, "Game finished",
+                                 "The game is already finished. Reset or create a new game.");
+        return;
+    }
+    if (isReplaying || isAnimating)
+    {
+        QMessageBox::information(this, "Busy",
+                                 "Please wait until replay/animation finishes.");
+        return;
+    }
+
+    int safety = 0;
+    while (playerFinished[currentPlayer] && safety < numPlayers)
+    {
+        currentPlayer = (currentPlayer + 1) % numPlayers;
+        ++safety;
+    }
+
+    int &pos = playerPos[currentPlayer];
+
+    if (pos >= 100)
+    {
+        playerFinished[currentPlayer] = true;
+        QMessageBox::information(this, "Game finished",
+                                 QString("Player %1 already reached 100.").arg(currentPlayer + 1));
+        return;
+    }
+
+    int dice = (rand() % 6) + 1;
+    diceLabel->setText(QString("Dice: %1").arg(dice));
+
+    diceRolls[currentPlayer]++;
+    turnsTaken[currentPlayer]++;
+
+    int newPos = pos + dice;
+
+    if (newPos > 100)
+    {
+        if (logText)
+        {
+            QString msg = QString("Player %1 rolled %2, but move exceeds 100. Stays at %3.")
+            .arg(currentPlayer + 1)
+                .arg(dice)
+                .arg(pos);
+            logText->append(msg);
+            logText->append("");
+        }
+
+        updateBoard();
+        currentPlayer = (currentPlayer + 1) % numPlayers;
+        updateBoard();
+        return;
+    }
+
+    bool hitSnake  = false;
+    bool hitLadder = false;
+
+    int finalPos = applySnakesAndLadders(newPos, hitSnake, hitLadder);
+
+    if (hitSnake)       snakesHit[currentPlayer]++;
+    else if (hitLadder) laddersClimbed[currentPlayer]++;
+
+    QString msg = QString("Player %1 rolled %2, moving from %3 to %4.")
+                      .arg(currentPlayer + 1)
+                      .arg(dice)
+                      .arg(pos)
+                      .arg(newPos);
+
+    if (hitSnake)
+        msg += QString(" Oh no! Snake! Slide down to %1.").arg(finalPos);
+    else if (hitLadder)
+        msg += QString(" Nice! Ladder! Climb up to %1.").arg(finalPos);
+
+    // History (feature 8)
+    Move m;
+    m.player    = currentPlayer;
+    m.fromPos   = pos;
+    m.dice      = dice;
+    m.toPos     = finalPos;
+    m.hitSnake  = hitSnake;
+    m.hitLadder = hitLadder;
+    history.push_back(m);
+
+    pos = finalPos;
+
+    if (hitSnake || hitLadder)
+        animateMove(currentPlayer, newPos, finalPos);
+
+    updateBoard();
+
+    if (logText)
+    {
+        logText->append(msg);
+        logText->append("");
+    }
+
+    if (pos == 100)
+    {
+        playerFinished[currentPlayer] = true;
+        gameFinished = true;
+
+        if (logText)
+            logText->append(
+                QString("🎉 Congratulations! Player %1 reached 100 and won the game!")
+                    .arg(currentPlayer + 1));
+
+        QMessageBox::information(this, "You win!",
+                                 QString("Congratulations! Player %1 reached square 100.")
+                                     .arg(currentPlayer + 1));
+        return;
+    }
+
+    currentPlayer = (currentPlayer + 1) % numPlayers;
+    updateBoard();
+}
+
+void GameWindow::onAnimateStep()
+{
+    if (animCurrent == animEnd)
+    {
+        if (animTimer)
+            animTimer->stop();
+        isAnimating = false;
+        return;
+    }
+
+    if (animCurrent < animEnd)
+        animCurrent++;
+    else
+        animCurrent--;
+
+    playerPos[animPlayer] = animCurrent;
+    updateBoard();
+}
+
+// ====================== Slots: Shortest Path (+ dice) ======================
+
+void GameWindow::onShowShortestPathClicked()
+{
+    if (!solver || !graph)
+        return;
+
+    int startVertex = playerPos[currentPlayer] - 1;  // 0-based
+    vector<int> path;
+    bool ok = solver->shortestPath(startVertex, 99, path); // 99 = square 100
+
+    if (!ok)
+    {
+        QMessageBox::warning(this, "Shortest Path",
+                             QString("No path found from Player %1's position to 100.")
+                                 .arg(currentPlayer + 1));
+        return;
+    }
+
+    // path is [target, ..., start]; reverse it to [start..target]
+    vector<int> squares;
+    squares.reserve(path.size());
+    for (int i = static_cast<int>(path.size()) - 1; i >= 0; --i)
+        squares.push_back(path[i]);
+
+    // compute dice rolls
+    vector<int> diceRollsNeeded;
+    diceRollsNeeded.reserve(squares.size() - 1);
+
+    for (size_t i = 0; i + 1 < squares.size(); ++i)
+    {
+        int u = squares[i];       // current vertex (0-based)
+        int v = squares[i + 1];   // next vertex (0-based)
+
+        int *neighbors = graph->getNeighbors(u);
+        int degree     = graph->getDegree(u);
+
+        int dice = -1;
+        for (int j = 0; j < degree; ++j)
+        {
+            if (neighbors[j] == v)
+            {
+                dice = j + 1;     // neighbors[0] => roll 1, etc.
+                break;
+            }
+        }
+
+        if (dice == -1)
+            dice = 0; // should not happen; 0 marks an issue
+
+        diceRollsNeeded.push_back(dice);
+    }
+
+    QStringList squareStrs;
+    for (int s : squares)
+        squareStrs << QString::number(s + 1);
+
+    QStringList diceStrs;
+    for (int d : diceRollsNeeded)
+        diceStrs << QString::number(d);
+
+    QString msg = QString("Shortest path for Player %1 (from %2 to 100):\n")
+                      .arg(currentPlayer + 1)
+                      .arg(playerPos[currentPlayer]);
+
+    msg += "Squares: " + squareStrs.join(" -> ") + "\n";
+    msg += "Dice rolls: " + diceStrs.join(", ");
 
     if (logText)
         logText->append(msg);
 
     QMessageBox::information(this, "Shortest Path", msg);
+}
+
+// ====================== Slots: Replay (feature 8) ======================
+
+void GameWindow::onReplayClicked()
+{
+    if (history.empty())
+    {
+        QMessageBox::information(this, "Replay", "No game history to replay yet.");
+        return;
+    }
+    if (isAnimating)
+    {
+        QMessageBox::information(this, "Busy",
+                                 "Please wait until animation finishes.");
+        return;
+    }
+
+    isReplaying = true;
+    replayIndex = 0;
+
+    for (int i = 0; i < numPlayers; ++i)
+    {
+        playerPos[i]      = 1;
+        playerFinished[i] = false;
+    }
+    currentPlayer = history[0].player;
+    updateBoard();
+
+    if (!replayTimer)
+    {
+        replayTimer = new QTimer(this);
+        connect(replayTimer, &QTimer::timeout,
+                this,        &GameWindow::onReplayStep);
+    }
+
+    replayTimer->start(700);
+}
+
+void GameWindow::onReplayStep()
+{
+    if (replayIndex >= static_cast<int>(history.size()))
+    {
+        if (replayTimer)
+            replayTimer->stop();
+        isReplaying = false;
+        return;
+    }
+
+    const Move &m = history[replayIndex];
+
+    currentPlayer = m.player;
+    playerPos[m.player] = m.toPos;
+    updateBoard();
+
+    replayIndex++;
+}
+
+// ====================== Slots: Custom Board Editor (feature 11) ======================
+
+void GameWindow::onEditBoardClicked()
+{
+    if (isReplaying || isAnimating)
+    {
+        QMessageBox::information(this, "Busy",
+                                 "Please wait until replay/animation finishes.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Custom Board Editor");
+
+    QVBoxLayout *layout = new QVBoxLayout(&dlg);
+
+    QLabel *label = new QLabel("Enter snakes and ladders (one per line):\n"
+                               "Format: S,head,tail  (head > tail)\n"
+                               "        L,bottom,top (top > bottom)");
+    QTextEdit *editor = new QTextEdit();
+
+    QPushButton *okBtn = new QPushButton("Apply");
+    QPushButton *cancelBtn = new QPushButton("Cancel");
+
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addWidget(okBtn);
+    btnLayout->addWidget(cancelBtn);
+
+    layout->addWidget(label);
+    layout->addWidget(editor);
+    layout->addLayout(btnLayout);
+
+    connect(okBtn,    &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(cancelBtn,&QPushButton::clicked, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    QString text = editor->toPlainText();
+    QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+
+    numSnakes  = 0;
+    numLadders = 0;
+
+    for (const QString &line : lines)
+    {
+        QStringList parts = line.split(',', Qt::SkipEmptyParts);
+        if (parts.size() != 3) continue;
+
+        QString type = parts[0].trimmed().toUpper();
+        int a = parts[1].toInt();
+        int b = parts[2].toInt();
+
+        // Snake: S, head, tail -> must have head > tail
+        if (type == "S" && numSnakes < MAX_SNAKES)
+        {
+            if (a > b)
+            {
+                snakes[numSnakes][0] = a;
+                snakes[numSnakes][1] = b;
+                numSnakes++;
+            }
+            else
+            {
+                if (logText)
+                    logText->append(
+                        QString("Ignored invalid snake: S,%1,%2 (head must be > tail).")
+                            .arg(a).arg(b));
+            }
+        }
+        // Ladder: L, bottom, top -> must have top > bottom
+        else if (type == "L" && numLadders < MAX_LADDERS)
+        {
+            if (b > a)
+            {
+                ladders[numLadders][0] = a;
+                ladders[numLadders][1] = b;
+                numLadders++;
+            }
+            else
+            {
+                if (logText)
+                    logText->append(
+                        QString("Ignored invalid ladder: L,%1,%2 (top must be > bottom).")
+                            .arg(a).arg(b));
+            }
+        }
+    }
+
+    delete graph;
+    delete solver;
+    graph  = new adj_list(numSnakes, snakes, numLadders, ladders);
+    solver = new BFS(graph);
+
+    ofstream file("C:/Users/yassi_b74iao3/Downloads/ADS v qt/sl/board.csv");
+    if (file.is_open())
+    {
+        for (int i = 0; i < numSnakes; ++i)
+            file << "S," << snakes[i][0] << "," << snakes[i][1] << "\n";
+
+        for (int i = 0; i < numLadders; ++i)
+            file << "L," << ladders[i][0] << "," << ladders[i][1] << "\n";
+
+        file.close();
+    }
+
+    updateBoard();
+
+    if (logText)
+        logText->append("Custom board applied from editor.");
 }

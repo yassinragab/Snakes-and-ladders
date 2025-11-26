@@ -3,16 +3,16 @@
 #include <cstdlib>
 #include <ctime>
 
-using namespace std;
-
 void generateRandomBoard(const char* filename,
                          int snakes[][2], int& numSnakes, int maxSnakes,
-                         int ladders[][2], int& numLadders, int maxLadders)
+                         int ladders[][2], int& numLadders, int maxLadders,
+                         int desiredSnakes, int desiredLadders)
 {
-    srand(static_cast<unsigned>(time(0)));
+    std::srand(static_cast<unsigned>(std::time(0)));
 
-    int desiredSnakes  = 8;
-    int desiredLadders = 8;
+    // Clamp requested numbers to allowed ranges
+    if (desiredSnakes < 0) desiredSnakes = 0;
+    if (desiredLadders < 0) desiredLadders = 0;
 
     if (desiredSnakes  > maxSnakes)  desiredSnakes  = maxSnakes;
     if (desiredLadders > maxLadders) desiredLadders = maxLadders;
@@ -27,13 +27,14 @@ void generateRandomBoard(const char* filename,
     const int MIN_SQUARE = 1;
     const int MAX_SQUARE = 99;
 
+    // Generate snakes
     while (numSnakes < desiredSnakes)
     {
-        int head = 5 + (rand() % (MAX_SQUARE - 4));
-        int tail = MIN_SQUARE + (rand() % (head - MIN_SQUARE));
+        int head = 5 + (std::rand() % (MAX_SQUARE - 4));
+        int tail = MIN_SQUARE + (std::rand() % (head - MIN_SQUARE));
 
-        if (head == tail)          continue;
-        if (used[head] || used[tail]) continue;
+        if (head == tail)              continue;
+        if (used[head] || used[tail])  continue;
 
         snakes[numSnakes][0] = head;
         snakes[numSnakes][1] = tail;
@@ -42,13 +43,14 @@ void generateRandomBoard(const char* filename,
         numSnakes++;
     }
 
+    // Generate ladders
     while (numLadders < desiredLadders)
     {
-        int bottom = MIN_SQUARE + (rand() % (MAX_SQUARE - 10));
-        int top    = bottom + 1 + (rand() % (MAX_SQUARE - bottom));
+        int bottom = MIN_SQUARE + (std::rand() % (MAX_SQUARE - 10));
+        int top    = bottom + 1 + (std::rand() % (MAX_SQUARE - bottom));
 
-        if (top == bottom)          continue;
-        if (used[bottom] || used[top]) continue;
+        if (top == bottom)              continue;
+        if (used[bottom] || used[top])  continue;
 
         ladders[numLadders][0] = bottom;
         ladders[numLadders][1] = top;
@@ -57,7 +59,7 @@ void generateRandomBoard(const char* filename,
         numLadders++;
     }
 
-    ofstream file(filename);
+    std::ofstream file(filename);
     if (!file.is_open())
         return;
 
