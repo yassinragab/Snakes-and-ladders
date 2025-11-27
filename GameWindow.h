@@ -3,7 +3,6 @@
 
 #include <QMainWindow>
 #include <QVector>
-#include <vector>
 
 class QLabel;
 class QPushButton;
@@ -29,8 +28,6 @@ private slots:
     void onRollDiceClicked();
     void onResetClicked();
     void onShowShortestPathClicked();
-    void onReplayClicked();
-    void onReplayStep();
     void onEditBoardClicked();
     void onAnimateStep();
 
@@ -69,29 +66,13 @@ private:
     bool playerFinished[MAX_PLAYERS];      // has this player reached 100?
     bool gameFinished;                     // true if someone already won
 
-    // Stats (feature 6)
-    int diceRolls[MAX_PLAYERS];            // still tracked internally if needed
+    // Stats
+    int diceRolls[MAX_PLAYERS];            // still tracked, but not shown
     int snakesHit[MAX_PLAYERS];
     int laddersClimbed[MAX_PLAYERS];
     int turnsTaken[MAX_PLAYERS];
 
-    // History + replay (feature 8)
-    struct Move
-    {
-        int player;    // 0..numPlayers-1
-        int fromPos;   // 1..100
-        int dice;      // 1..6
-        int toPos;     // 1..100 (after snake/ladder)
-        bool hitSnake;
-        bool hitLadder;
-    };
-
-    std::vector<Move> history;
-    bool   isReplaying;
-    int    replayIndex;
-    QTimer *replayTimer;
-
-    // Animation (feature 12)
+    // Animation (snakes/ladders)
     bool   isAnimating;
     int    animPlayer;
     int    animCurrent;
@@ -107,7 +88,6 @@ private:
     QPushButton *rollButton;
     QPushButton *resetButton;
     QPushButton *shortestPathButton;
-    QPushButton *replayButton;
     QPushButton *editBoardButton;
 
     QLabel      *diceLabel;

@@ -12,11 +12,11 @@
 #include <QComboBox>
 #include <QTimer>
 #include <QDialog>
-#include <fstream>
 
 #include <cstdlib>
 #include <ctime>
 #include <vector>
+#include <fstream>
 
 using namespace std;
 
@@ -33,9 +33,6 @@ GameWindow::GameWindow(QWidget *parent)
     desiredLadders(8),      // base config: 8 ladders
     currentPlayer(0),
     gameFinished(false),
-    isReplaying(false),
-    replayIndex(0),
-    replayTimer(nullptr),
     isAnimating(false),
     animPlayer(0),
     animCurrent(1),
@@ -47,7 +44,6 @@ GameWindow::GameWindow(QWidget *parent)
     rollButton(nullptr),
     resetButton(nullptr),
     shortestPathButton(nullptr),
-    replayButton(nullptr),
     editBoardButton(nullptr),
     diceLabel(nullptr),
     positionLabel(nullptr),
@@ -66,7 +62,6 @@ GameWindow::GameWindow(QWidget *parent)
 
 GameWindow::~GameWindow()
 {
-    delete replayTimer;
     delete animTimer;
     delete solver;
     delete graph;
@@ -145,14 +140,12 @@ void GameWindow::setupUi()
     rollButton         = new QPushButton("Roll Dice");
     resetButton        = new QPushButton("Reset Game");
     shortestPathButton = new QPushButton("Show Shortest Path");
-    replayButton       = new QPushButton("Replay Last Game");
     editBoardButton    = new QPushButton("Edit Board");
 
     buttonLayout->addWidget(createGameButton);
     buttonLayout->addWidget(rollButton);
     buttonLayout->addWidget(resetButton);
     buttonLayout->addWidget(shortestPathButton);
-    buttonLayout->addWidget(replayButton);
     buttonLayout->addWidget(editBoardButton);
 
     // Log box
@@ -160,7 +153,7 @@ void GameWindow::setupUi()
     logText->setReadOnly(true);
     logText->setMinimumWidth(260);
 
-    // Stats box (feature 6)
+    // Stats box
     statsText = new QTextEdit();
     statsText->setReadOnly(true);
     statsText->setMinimumWidth(260);
@@ -189,12 +182,10 @@ void GameWindow::setupUi()
             this,               &GameWindow::onResetClicked);
     connect(shortestPathButton, &QPushButton::clicked,
             this,               &GameWindow::onShowShortestPathClicked);
-    connect(replayButton,       &QPushButton::clicked,
-            this,               &GameWindow::onReplayClicked);
     connect(editBoardButton,    &QPushButton::clicked,
             this,               &GameWindow::onEditBoardClicked);
 
-    setWindowTitle("Snakes and Ladders - Qt GUI (Multi-Player Enhanced)");
+    setWindowTitle("Snakes and Ladders - Qt GUI (Multi-Player)");
     resize(1200, 700);
 }
 
@@ -251,9 +242,6 @@ void GameWindow::initGameLogic()
 
     currentPlayer = 0;
     gameFinished  = false;
-    isReplaying   = false;
-    replayIndex   = 0;
-    history.clear();
 
     // Initialize players & stats
     for (int i = 0; i < MAX_PLAYERS; ++i)
@@ -354,7 +342,6 @@ void GameWindow::updateStatsPanel()
     for (int p = 0; p < numPlayers; ++p)
     {
         s += QString("Player %1:\n").arg(p + 1);
-        // Removed: Rolls line (you asked to hide number of dice rolls)
         s += QString("  Turns: %1\n").arg(turnsTaken[p]);
         s += QString("  Snakes hit: %1\n").arg(snakesHit[p]);
         s += QString("  Ladders climbed: %1\n\n").arg(laddersClimbed[p]);
@@ -376,7 +363,8 @@ void GameWindow::animateMove(int player, int start, int end)
     animCurrent = start;
     animEnd     = end;
 
-    animTimer->start(150); // ms per step
+    // Faster animation (e.g. 50ms per step)
+    animTimer->start(50);
 }
 
 // ====================== Board Redraw ======================
@@ -386,7 +374,6 @@ void GameWindow::updateBoard()
     if (cellLabels.size() != 100)
         return;
 
-    // Classic theme
     QString normalColor   = "white";
     QString snakeColor    = "#ff6666";
     QString ladderColor   = "#66ff66";
@@ -491,10 +478,10 @@ void GameWindow::updateBoard()
 
 void GameWindow::onCreateGameClicked()
 {
-    if (isReplaying || isAnimating)
+    if (isAnimating)
     {
         QMessageBox::information(this, "Busy",
-                                 "Please wait until replay/animation finishes.");
+                                 "Please wait until animation finishes.");
         return;
     }
 
@@ -517,10 +504,10 @@ void GameWindow::onCreateGameClicked()
 
 void GameWindow::onResetClicked()
 {
-    if (isReplaying || isAnimating)
+    if (isAnimating)
     {
         QMessageBox::information(this, "Busy",
-                                 "Please wait until replay/animation finishes.");
+                                 "Please wait until animation finishes.");
         return;
     }
 
@@ -548,10 +535,10 @@ void GameWindow::onRollDiceClicked()
                                  "The game is already finished. Reset or create a new game.");
         return;
     }
-    if (isReplaying || isAnimating)
+    if (isAnimating)
     {
         QMessageBox::information(this, "Busy",
-                                 "Please wait until replay/animation finishes.");
+                                 "Please wait until animation finishes.");
         return;
     }
 
@@ -616,16 +603,6 @@ void GameWindow::onRollDiceClicked()
         msg += QString(" Oh no! Snake! Slide down to %1.").arg(finalPos);
     else if (hitLadder)
         msg += QString(" Nice! Ladder! Climb up to %1.").arg(finalPos);
-
-    // History (feature 8)
-    Move m;
-    m.player    = currentPlayer;
-    m.fromPos   = pos;
-    m.dice      = dice;
-    m.toPos     = finalPos;
-    m.hitSnake  = hitSnake;
-    m.hitLadder = hitLadder;
-    history.push_back(m);
 
     pos = finalPos;
 
@@ -753,70 +730,14 @@ void GameWindow::onShowShortestPathClicked()
     QMessageBox::information(this, "Shortest Path", msg);
 }
 
-// ====================== Slots: Replay (feature 8) ======================
+// ====================== Slots: Custom Board Editor ======================
 
-void GameWindow::onReplayClicked()
+void GameWindow::onEditBoardClicked()
 {
-    if (history.empty())
-    {
-        QMessageBox::information(this, "Replay", "No game history to replay yet.");
-        return;
-    }
     if (isAnimating)
     {
         QMessageBox::information(this, "Busy",
                                  "Please wait until animation finishes.");
-        return;
-    }
-
-    isReplaying = true;
-    replayIndex = 0;
-
-    for (int i = 0; i < numPlayers; ++i)
-    {
-        playerPos[i]      = 1;
-        playerFinished[i] = false;
-    }
-    currentPlayer = history[0].player;
-    updateBoard();
-
-    if (!replayTimer)
-    {
-        replayTimer = new QTimer(this);
-        connect(replayTimer, &QTimer::timeout,
-                this,        &GameWindow::onReplayStep);
-    }
-
-    replayTimer->start(700);
-}
-
-void GameWindow::onReplayStep()
-{
-    if (replayIndex >= static_cast<int>(history.size()))
-    {
-        if (replayTimer)
-            replayTimer->stop();
-        isReplaying = false;
-        return;
-    }
-
-    const Move &m = history[replayIndex];
-
-    currentPlayer = m.player;
-    playerPos[m.player] = m.toPos;
-    updateBoard();
-
-    replayIndex++;
-}
-
-// ====================== Slots: Custom Board Editor (feature 11) ======================
-
-void GameWindow::onEditBoardClicked()
-{
-    if (isReplaying || isAnimating)
-    {
-        QMessageBox::information(this, "Busy",
-                                 "Please wait until replay/animation finishes.");
         return;
     }
 
@@ -903,15 +824,14 @@ void GameWindow::onEditBoardClicked()
     graph  = new adj_list(numSnakes, snakes, numLadders, ladders);
     solver = new BFS(graph);
 
+    // also write the edited board to CSV
     ofstream file("C:/Users/yassi_b74iao3/Downloads/ADS v qt/sl/board.csv");
     if (file.is_open())
     {
         for (int i = 0; i < numSnakes; ++i)
             file << "S," << snakes[i][0] << "," << snakes[i][1] << "\n";
-
         for (int i = 0; i < numLadders; ++i)
             file << "L," << ladders[i][0] << "," << ladders[i][1] << "\n";
-
         file.close();
     }
 
