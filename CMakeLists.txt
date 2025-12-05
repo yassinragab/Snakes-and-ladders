@@ -28,6 +28,17 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         Queue.h Queue.cpp
         RandomBoard.h RandomBoard.cpp
         GameWindow.h GameWindow.cpp
+        BoardEngine.h BoardEngine.cpp
+        BoardWidget.h BoardWidget.cpp
+        StatsFormatter.h StatsFormatter.cpp
+        BoardEditor.h BoardEditor.cpp
+
+
+
+
+
+
+
 
 
 

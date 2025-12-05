@@ -2,18 +2,16 @@
 #define GAMEWINDOW_H
 
 #include <QMainWindow>
-#include <QVector>
 
 class QLabel;
 class QPushButton;
 class QTextEdit;
-class QGridLayout;
 class QComboBox;
 class QTimer;
+class QWidget;
 
-#include "adj_list.h"
-#include "BFS.h"
-#include "RandomBoard.h"
+class BoardWidget;
+class BoardEngine;
 
 class GameWindow : public QMainWindow
 {
@@ -33,11 +31,8 @@ private slots:
 
 private:
     void setupUi();
-    void setupBoardGrid();
     void updateBoard();
     void initGameLogic();                  // Uses numPlayers/desiredSnakes/desiredLadders
-    int  applySnakesAndLadders(int pos, bool &hitSnake, bool &hitLadder);
-
     void updateStatsPanel();
     void animateMove(int player, int start, int end);
     QString playerColor(int playerIndex) const;
@@ -46,14 +41,13 @@ private:
     static const int MAX_LADDERS = 20;
     static const int MAX_PLAYERS = 4;
 
-    // Board data
+    // Board data (owned here, used by BoardEngine & BoardWidget)
     int snakes[MAX_SNAKES][2];
     int ladders[MAX_LADDERS][2];
     int numSnakes;
     int numLadders;
 
-    adj_list *graph;
-    BFS      *solver;
+    BoardEngine *boardEngine;
 
     // Config
     int  numPlayers;                       // current configuration
@@ -67,10 +61,10 @@ private:
     bool gameFinished;                     // true if someone already won
 
     // Stats
-    int diceRolls[MAX_PLAYERS];            // still tracked, but not shown
-    int snakesHit[MAX_PLAYERS];
-    int laddersClimbed[MAX_PLAYERS];
-    int turnsTaken[MAX_PLAYERS];
+    int  diceRolls[MAX_PLAYERS];
+    int  snakesHit[MAX_PLAYERS];
+    int  laddersClimbed[MAX_PLAYERS];
+    int  turnsTaken[MAX_PLAYERS];
 
     // Animation (snakes/ladders)
     bool   isAnimating;
@@ -81,8 +75,7 @@ private:
 
     // Widgets
     QWidget      *centralWidget;
-    QGridLayout  *boardLayout;
-    QVector<QLabel*> cellLabels;
+    BoardWidget  *boardWidget;    // dedicated widget for board UI
 
     QPushButton *createGameButton;
     QPushButton *rollButton;
