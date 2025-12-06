@@ -16,12 +16,13 @@
 #include <QStringList>
 #include <QComboBox>
 #include <QTimer>
-
+\
 #include <cstdlib>
 #include <ctime>
+#include <qapplication.h>
 #include <vector>
 
-using namespace std;
+    using namespace std;
 
 // ====================== Constructor / Destructor ======================
 
@@ -54,12 +55,28 @@ GameWindow::GameWindow(QWidget *parent)
     statsText(nullptr),
     playerCountCombo(nullptr),
     snakeCountCombo(nullptr),
-    ladderCountCombo(nullptr)
-{
+    ladderCountCombo(nullptr),
+    originalGameUI(nullptr)
+{srand(static_cast<unsigned>(time(nullptr)));
+
+
     srand(static_cast<unsigned>(time(nullptr)));
-    setupUi();
-    initGameLogic();     // uses base config (1,8,8)
+
+    setupUi();  // Builds full UI but we'll hide it initially
+
+    // === ADD WELCOME SCREEN HERE ===
+    hide();  // Hide full game UI initially
+
+    WelcomePage *welcome = new WelcomePage(this);
+    welcome->show();
+    connect(welcome, &WelcomePage::startGame, this, &GameWindow::showGame);
+}
+
+void GameWindow::showGame()
+{
+    initGameLogic();
     updateBoard();
+    show();
 }
 
 GameWindow::~GameWindow()
@@ -139,12 +156,14 @@ void GameWindow::setupUi()
     resetButton        = new QPushButton("Reset Game");
     shortestPathButton = new QPushButton("Show Shortest Path");
     editBoardButton    = new QPushButton("Edit Board");
+    QPushButton *exitButton = new QPushButton("Exit Game");
 
     buttonLayout->addWidget(createGameButton);
     buttonLayout->addWidget(rollButton);
     buttonLayout->addWidget(resetButton);
     buttonLayout->addWidget(shortestPathButton);
     buttonLayout->addWidget(editBoardButton);
+    buttonLayout->addWidget(exitButton);
 
     // Log box
     logText = new QTextEdit();
@@ -182,6 +201,7 @@ void GameWindow::setupUi()
             this,               &GameWindow::onShowShortestPathClicked);
     connect(editBoardButton,    &QPushButton::clicked,
             this,               &GameWindow::onEditBoardClicked);
+    connect(exitButton, &QPushButton::clicked, this, &GameWindow::onExitClicked);
 
     setWindowTitle("Snakes and Ladders - Qt GUI (Multi-Player)");
     resize(1200, 700);
@@ -191,6 +211,9 @@ void GameWindow::setupUi()
 
 void GameWindow::initGameLogic()
 {
+    // Clear any previous celebration star
+    if (boardWidget) boardWidget->clearCelebration();
+
     // Clamp config
     if (numPlayers < 1) numPlayers = 1;
     if (numPlayers > MAX_PLAYERS) numPlayers = MAX_PLAYERS;
@@ -225,7 +248,7 @@ void GameWindow::initGameLogic()
     numSnakes  = 0;
     numLadders = 0;
 
-    generateRandomBoard("C:/Users/yassi_b74iao3/Downloads/ADS v qt/sl/board.csv",
+    generateRandomBoard("C:/Users/yassi_b74iao3/Downloads/Final version/Final version/ADS project m3/snakesladders/bd.csv",
                         snakes,  numSnakes,  MAX_SNAKES,
                         ladders, numLadders, MAX_LADDERS,
                         desiredSnakes, desiredLadders);
@@ -274,7 +297,7 @@ QString GameWindow::playerColor(int playerIndex) const
     case 0: return "#1e90ff"; // blue
     case 1: return "#ff5555"; // red
     case 2: return "#55dd55"; // green
-    case 3: return "#ffaa00"; // orange
+    case 3: return "#8000ff"; // purple
     default: return "black";
     }
 }
@@ -282,9 +305,31 @@ QString GameWindow::playerColor(int playerIndex) const
 void GameWindow::updateStatsPanel()
 {
     if (!statsText) return;
-    statsText->setText(
-        StatsFormatter::formatStats(numPlayers, turnsTaken, snakesHit, laddersClimbed)
-        );
+
+    QString s;
+
+    for (int p = 0; p < numPlayers; ++p)
+    {
+        QString colorHex = playerColor(p);   // e.g. "#1e90ff"
+
+        // Legend line with colored dot + player number
+        s += QString("<b><span style='color:%1'>● Player %2</span></b><br>")
+                 .arg(colorHex)
+                 .arg(p + 1);
+
+        // Position (with Finished label if they reached 100)
+        s += QString("&nbsp;&nbsp;Position: %1%2<br>")
+                 .arg(playerPos[p])
+                 .arg(playerFinished[p] ? " (Finished)" : "");
+
+        // Other stats
+        s += QString("&nbsp;&nbsp;Turns: %1<br>").arg(turnsTaken[p]);
+        s += QString("&nbsp;&nbsp;Snakes hit: %1<br>").arg(snakesHit[p]);
+        s += QString("&nbsp;&nbsp;Ladders climbed: %1<br><br>")
+                 .arg(laddersClimbed[p]);
+    }
+
+    statsText->setHtml(s);   // use HTML so colors & formatting show
 }
 
 void GameWindow::animateMove(int player, int start, int end)
@@ -483,6 +528,10 @@ void GameWindow::onRollDiceClicked()
         playerFinished[currentPlayer] = true;
         gameFinished = true;
 
+        // ADD NEW: tell the board to show celebration star
+        if (boardWidget)
+            boardWidget->startCelebration();
+
         if (logText)
             logText->append(
                 QString("🎉 Congratulations! Player %1 reached 100 and won the game!")
@@ -585,7 +634,7 @@ void GameWindow::onEditBoardClicked()
         boardEngine = new BoardEngine(snakes, numSnakes, ladders, numLadders);
 
     // Save to CSV (same path as random board)
-    BoardEditor::saveBoardToCsv("C:/Users/yassi_b74iao3/Downloads/ADS v qt/sl/board.csv",
+    BoardEditor::saveBoardToCsv("C:/Users/yassi_b74iao3/Downloads/Final version/Final version/ADS project m3/snakesladders/bd.csv",
                                 snakes, numSnakes, ladders, numLadders);
 
     updateBoard();
@@ -593,3 +642,18 @@ void GameWindow::onEditBoardClicked()
     if (logText)
         logText->append("Custom board applied from editor.");
 }
+
+void GameWindow::onExitClicked()
+{
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        "Exit Game",
+        "Are you sure you want to exit Snakes & Ladders?\n\nYour progress will be lost.",
+        QMessageBox::Yes | QMessageBox::No
+        );
+
+    if (reply == QMessageBox::Yes) {
+        qApp->quit();  // Close entire application
+    }
+}
+

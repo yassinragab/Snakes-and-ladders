@@ -1,6 +1,6 @@
 #include "Queue.h"
 
-Queue::Queue(int cap) : capacity(cap), front(0), rear(-1), size(0)
+Queue::Queue(int cap) : front(0), rear(-1), capacity(cap), size(0)
 {
     arr = new int[cap];
 }

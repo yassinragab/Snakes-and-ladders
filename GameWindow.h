@@ -1,6 +1,7 @@
 #ifndef GAMEWINDOW_H
 #define GAMEWINDOW_H
 
+#include "Page1.h"
 #include <QMainWindow>
 
 class QLabel;
@@ -28,7 +29,8 @@ private slots:
     void onShowShortestPathClicked();
     void onEditBoardClicked();
     void onAnimateStep();
-
+    void showGame();
+    void onExitClicked();
 private:
     void setupUi();
     void updateBoard();
@@ -36,6 +38,8 @@ private:
     void updateStatsPanel();
     void animateMove(int player, int start, int end);
     QString playerColor(int playerIndex) const;
+    WelcomePage *welcomeWidget{nullptr};
+    QWidget* originalGameUI{nullptr};
 
     static const int MAX_SNAKES  = 20;
     static const int MAX_LADDERS = 20;

@@ -8,9 +8,10 @@
 
 BoardWidget::BoardWidget(QWidget *parent)
     : QWidget(parent),
-    m_numPlayers(0)
+    m_numPlayers(0),
+    m_celebrating(false)
 {
-    setMinimumSize(500, 500);   // ensure a reasonable default size
+    setMinimumSize(500, 500);
 }
 
 QSize BoardWidget::sizeHint() const
@@ -43,6 +44,18 @@ void BoardWidget::updateBoard(const int playerPos[], const bool playerFinished[]
         m_ladders.append(qMakePair(ladders[i][0], ladders[i][1]));
 
     update();   // trigger repaint
+}
+
+void BoardWidget::startCelebration()
+{
+    m_celebrating = true;                 // turn on celebration
+    update();
+}
+
+void BoardWidget::clearCelebration()
+{
+    m_celebrating = false;
+    update();        // trigger repaint without the star
 }
 
 void BoardWidget::computeBoardGeometry(int &cellSize, int &offsetX, int &offsetY) const
@@ -109,16 +122,64 @@ QPointF BoardWidget::cellCenterFromNumber(int cellNum) const
 
 void BoardWidget::paintEvent(QPaintEvent *event)
 {
-    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
 
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
+    int rows = 10;
+    int cols = 10;
+    int cellW = width()  / cols;
+    int cellH = height() / rows;
 
-    drawGrid(p);
-    drawLadders(p);
-    drawSnakes(p);
-    drawPlayers(p);
-    drawNumbers(p);
+    //  Draw coloured background squares (alternating colours)
+    for (int r = 0; r < rows; r++)
+    {
+        for (int c = 0; c < cols; c++)
+        {
+            QRect cellRect(c * cellW, r * cellH, cellW, cellH);
+
+            bool isDark = ((r + c) % 2 == 0); // checker pattern
+
+            QColor lightColor("#aee6a5"); // light green
+            QColor darkColor ("#6cc96f"); // medium green
+            painter.fillRect(cellRect, isDark ? lightColor : darkColor);
+
+            // optional border
+            painter.setPen(QPen(Qt::black, 1));
+            painter.drawRect(cellRect);
+        }
+    }
+    // Draw square numbers using snake pattern (1→10 left→right)
+    painter.setFont(QFont("Arial", 12, QFont::Bold));
+
+    for (int rowFromTop = 0; rowFromTop < rows; rowFromTop++)
+    {
+        int rowFromBottom = rows - 1 - rowFromTop;   // convert
+
+        for (int col = 0; col < cols; col++)
+        {
+            int colSnake;
+            if (rowFromBottom % 2 == 0)
+                colSnake = col;           // even row → left to right
+            else
+                colSnake = cols - 1 - col; // odd row → right to left
+
+            int cellNum = rowFromBottom * cols + colSnake + 1;
+
+            QRect rect(col * cellW, rowFromTop * cellH, cellW, cellH);
+            painter.drawText(rect, Qt::AlignCenter, QString::number(cellNum));
+        }
+    }
+      //  Draw snakes
+    drawSnakes(painter);
+
+    //  Draw ladders
+    drawLadders(painter);
+
+    // Draw players
+    drawPlayers(painter);
+
+    //Celebration overlay (if someone won)
+    drawCelebration(painter);
 }
 
 void BoardWidget::drawGrid(QPainter &p)
@@ -157,31 +218,29 @@ void BoardWidget::drawLadders(QPainter &p)
 {
     p.save();
 
-    QPen railPen(Qt::green, 4);
+    QColor ladderColor(0, 0, 139);
+    QPen railPen(ladderColor, 4);
     railPen.setCapStyle(Qt::RoundCap);
     railPen.setJoinStyle(Qt::RoundJoin);
     p.setPen(railPen);
 
     for (const auto &ladder : m_ladders)
     {
-        int start = ladder.first;   // bottom
-        int end   = ladder.second;  // top
+        int start = ladder.first;
+        int end   = ladder.second;
         if (start < 1 || start > 100 || end < 1 || end > 100)
             continue;
 
         QPointF a = cellCenterFromNumber(start);
         QPointF b = cellCenterFromNumber(end);
 
-        // Direction from bottom to top
         QVector2D dir(b - a);
-        if (dir.length() == 0.0f)
-            continue;
+        if (dir.length() == 0.0f) continue;
 
         dir.normalize();
-        QVector2D perp(-dir.y(), dir.x());  // perpendicular
+        QVector2D perp(-dir.y(), dir.x());
 
-        // Distance between the two side rails
-        qreal halfWidth = 10.0;  // half the ladder width in pixels
+        qreal halfWidth = 10.0;
         QPointF offset = perp.toPointF() * halfWidth;
 
         QPointF leftStart  = a - offset;
@@ -189,51 +248,48 @@ void BoardWidget::drawLadders(QPainter &p)
         QPointF rightStart = a + offset;
         QPointF rightEnd   = b + offset;
 
-        // Draw side rails
         p.drawLine(leftStart, leftEnd);
         p.drawLine(rightStart, rightEnd);
 
-        // Draw rungs
         int rungCount = 6;
-        QPen rungPen(Qt::green, 3);
+        QPen rungPen(ladderColor, 3);
         rungPen.setCapStyle(Qt::RoundCap);
         p.setPen(rungPen);
 
         for (int i = 1; i < rungCount; ++i)
         {
-            qreal t = qreal(i) / rungCount;   // between 0 and 1 along the ladder
+            qreal t = qreal(i) / rungCount;
             QPointF midLeft  = leftStart  + (leftEnd  - leftStart)  * t;
             QPointF midRight = rightStart + (rightEnd - rightStart) * t;
             p.drawLine(midLeft, midRight);
         }
 
-        // Restore rail pen for next ladder
         p.setPen(railPen);
     }
 
-    p.restore();
+    p.restore();  // <- CLEAN line 252
 }
 
 void BoardWidget::drawSnakes(QPainter &p)
 {
     p.save();
-    QPen pen(Qt::red, 5);
+
+    // 🟡 Dark yellow snake colour
+    QColor snakeColor(204, 153, 0);          // golden dark yellow
+    QPen pen(snakeColor, 5);
     pen.setCapStyle(Qt::RoundCap);
     pen.setJoinStyle(Qt::RoundJoin);
     p.setPen(pen);
 
     for (const auto &snake : m_snakes)
     {
-        int head = snake.first;   // usually bigger number
-        int tail = snake.second;  // smaller number
+        int head = snake.first;   // top
+        int tail = snake.second;  // bottom
         if (head < 1 || head > 100 || tail < 1 || tail > 100)
             continue;
 
         QPointF a = cellCenterFromNumber(head);
         QPointF b = cellCenterFromNumber(tail);
-
-        // Build a curvy path from head to tail
-        QPainterPath path(a);
 
         QVector2D dir(b - a);
         QVector2D perp(-dir.y(), dir.x());
@@ -243,26 +299,37 @@ void BoardWidget::drawSnakes(QPainter &p)
             perp.normalize();
         }
 
-        // Control points for bezier to make a snake-like curve
-        qreal amplitude = 20.0;  // how "curvy" the snake is
+        // 👉 Shift snake sideways so the head is not on the number
+        QRect headCell = cellRectFromNumber(head);
+        qreal sideOffset = headCell.width() * 0.35;         // tweak 0.30–0.45 if you like
+        QPointF sideShift = perp.toPointF() * sideOffset;
 
-        QPointF c1 = a + (b - a) * 0.33 + perp.toPointF() * amplitude;
-        QPointF c2 = a + (b - a) * 0.66 - perp.toPointF() * amplitude;
+        QPointF aShift = a + sideShift;
+        QPointF bShift = b + sideShift;
 
-        path.cubicTo(c1, c2, b);
+        // Curvy snake path from shifted head to shifted tail
+        QPainterPath path(aShift);
 
+        qreal amplitude = 20.0;
+        QPointF c1 = aShift + (bShift - aShift) * 0.33 + perp.toPointF() * amplitude;
+        QPointF c2 = aShift + (bShift - aShift) * 0.66 - perp.toPointF() * amplitude;
+
+        path.cubicTo(c1, c2, bShift);
         p.drawPath(path);
 
-        // Draw a simple snake "head" at the start (triangle)
-        p.setBrush(Qt::red);
-        QVector2D headDir = (dir.length() > 0.0f) ? dir : QVector2D(0, 1);
+        // 🐍 Snake head triangle, also using shifted head position
+        p.setBrush(snakeColor);
+
+        QVector2D headDir = (dir.length() > 0.0f ? dir : QVector2D(0, 1));
         headDir.normalize();
         QVector2D side(-headDir.y(), headDir.x());
 
         qreal headSize = 10.0;
-        QPointF tip   = a + headDir.toPointF() * headSize;
-        QPointF left  = a + side.toPointF() * headSize * 0.7;
-        QPointF right = a - side.toPointF() * headSize * 0.7;
+        QPointF base = aShift;   // shifted, not in the center
+
+        QPointF tip   = base + headDir.toPointF() * headSize;
+        QPointF left  = base + side.toPointF() * headSize * 0.7;
+        QPointF right = base - side.toPointF() * headSize * 0.7;
 
         QPolygonF headPoly;
         headPoly << tip << left << right;
@@ -270,6 +337,41 @@ void BoardWidget::drawSnakes(QPainter &p)
     }
 
     p.restore();
+}
+
+
+void BoardWidget::drawCelebration(QPainter &p)     // ADD NEW
+{
+    if (!m_celebrating)
+        return;   // nothing to draw if no celebration
+
+    p.save();
+
+    // We celebrate on the last square (100)
+    QRect cell = cellRectFromNumber(100);
+    QPointF center = cell.center();
+
+    // Big yellow star
+    QPen pen(Qt::yellow, 3);
+    p.setPen(pen);
+    p.setBrush(QColor(255, 255, 180));
+
+    const int points = 10;            // 10-point star
+    const qreal outerR = cell.width() * 0.7;
+    const qreal innerR = cell.width() * 0.35;
+
+    QPolygonF star;
+    for (int i = 0; i < points; ++i)
+    {
+        qreal angle = i * 2 * M_PI / points;   // needs <QtMath>, you already have it
+        qreal r = (i % 2 == 0) ? outerR : innerR;
+        QPointF pt(center.x() + r * qCos(angle),
+                   center.y() + r * qSin(angle));
+        star << pt;
+    }
+
+    p.drawPolygon(star);
+p.restore();
 }
 
 void BoardWidget::drawPlayers(QPainter &p)
@@ -291,19 +393,44 @@ void BoardWidget::drawPlayers(QPainter &p)
         QRect cell = cellRectFromNumber(cellNum);
         QPointF center = cell.center();
 
-        // Slight vertical offset so multiple players don't overlap perfectly
-        qreal radius = qMin(cell.width(), cell.height()) * 0.18;
+        // Smaller radius so they fit nicely in corners
+        qreal radius = qMin(cell.width(), cell.height()) * 0.12;
         if (radius < 2.0) radius = 2.0;
 
-        QPointF offset(0, - (i - (m_numPlayers - 1) / 2.0) * (radius * 1.8));
+        // Distance from center to place the circles
+        qreal dx = radius * 1.6;
+        qreal dy = radius * 1.6;
+
+        QPointF pos = center;
+
+        // Place players in different corners of the cell
+        switch (i)
+        {
+        case 0: // Player 1 – top-left
+            pos = QPointF(center.x() - dx * 1.6, center.y() - dy);
+            break;
+
+        case 1: // Player 2 – top-right
+            pos = QPointF(center.x() + dx * 1.0, center.y() - dy);
+            break;
+
+        case 2: // Player 3 – bottom-left
+            pos = QPointF(center.x() - dx * 1.6, center.y() + dy * 2.0);
+            break;
+
+        case 3: // Player 4 – bottom-right
+            pos = QPointF(center.x() + dx * 1.0, center.y() + dy * 2.0);
+            break;
+        }
 
         p.setBrush(playerColor(i));
         p.setPen(Qt::black);
-        p.drawEllipse(center + offset, radius, radius);
+        p.drawEllipse(pos, radius, radius);
     }
 
     p.restore();
 }
+
 
 void BoardWidget::drawNumbers(QPainter &p)
 {
@@ -332,7 +459,8 @@ QColor BoardWidget::playerColor(int idx) const
     case 0: return QColor("#1e90ff"); // blue
     case 1: return QColor("#ff5555"); // red
     case 2: return QColor("#55dd55"); // green
-    case 3: return QColor("#ffaa00"); // orange
+    case 3: return QColor("#8000ff"); // purple
     default: return Qt::black;
     }
 }
+

@@ -19,6 +19,10 @@ public:
                      const int snakes[][2], int numSnakes,
                      const int ladders[][2], int numLadders);
 
+    void startCelebration();
+    void clearCelebration();
+
+
 protected:
     void paintEvent(QPaintEvent *event) override;
 
@@ -28,6 +32,8 @@ private:
     QVector<bool> m_playerFinished;
     QVector<QPair<int,int>> m_snakes;   // (start, end)
     QVector<QPair<int,int>> m_ladders;  // (start, end)
+
+    bool m_celebrating = false;
 
     // Helpers
     void  computeBoardGeometry(int &cellSize, int &offsetX, int &offsetY) const;
@@ -39,6 +45,8 @@ private:
     void drawSnakes(QPainter &p);
     void drawPlayers(QPainter &p);
     void drawNumbers(QPainter &p);
+    void drawCelebration(QPainter &p);
+
 
     QColor playerColor(int idx) const;
 };
